@@ -1,74 +1,84 @@
 extern crate chrono;
 
 use std::env;
+use std::collections::HashMap;
 
-#[derive(Clone, Debug)]
-pub enum Level {
-  Debug,
-  Verbose,
-  Info,
-  Warn,
-  Error,
-  Fatal,
-  All
-}
+#[derive(Debug, Clone)]
+pub struct Level(pub &'static str, pub u32);
 
 impl Level {
-  pub fn from_env() -> Level {
-    let level = match env::var("LOG_LEVEL") {
-      Ok(l) => l,
-      Err(_) => String::from("")
-    };
+  pub fn name(&self) -> &'static str {self.0}
+  pub fn id(&self) -> u32 {self.1}
+}
 
-    let level = match level.to_uppercase().as_str() {
-      "DEBUG" => Level::Debug,
-      "VERBOSE" => Level::Verbose,
-      "INFO" => Level::Info,
-      "WARN" => Level::Warn,
-      "ERROR" => Level::Error,
-      "FATAL" => Level::Fatal,
-      _ => Level::All
-    };
+const ALL: Level = Level("ALL", 0);
+const DEBUG: Level = Level("DEBUG", 1);
+const VERBOSE: Level = Level("VERBOSE", 2);
+const INFO: Level = Level("INFO", 3);
+const WARN: Level = Level("WARN", 4);
+const ERROR: Level = Level("ERROR", 5);
+const FATAL: Level = Level("FATAL", 6);
 
-    level
+// This allows us to fetch from environment variable
+#[derive(Debug, Clone)]
+pub struct Levels {
+  pub levels: HashMap<&'static str, Level>,
+  pub current: Level
+}
+
+impl Levels {
+  pub fn new() -> Levels {
+    let levels = HashMap::new();
+    let mut levels = Levels { levels, current: ALL };
+
+    levels.add_defaults();
+    levels.current = levels.from_env();
+
+    levels
   }
 
-  pub fn as_num(level: Level) -> u32 {
-    match level {
-      Level::Debug => 0,
-      Level::Verbose => 1,
-      Level::Info => 2,
-      Level::Warn => 3,
-      Level::Error => 4,
-      Level::Fatal => 5,
-      Level::All => 6
+  pub fn from_env(&self) -> Level {
+    let level = env::var("LOG_LEVEL").unwrap_or_default();
+    let level = self.levels.get(level.to_uppercase().as_str()).unwrap_or(&ALL);
+
+    level.clone()
+  }
+
+  fn add_defaults(&mut self) {
+    let default_levels = [DEBUG, VERBOSE, INFO, WARN, ERROR, FATAL, ALL];
+
+    for level in default_levels.iter() {
+      self.add(&level);
     }
   }
 
-  pub fn is_in_level(msg_level: Level, logger_level: Level) -> bool {
-    Level::as_num(msg_level) >= Level::as_num(logger_level)
+  pub fn add(&mut self, level: &Level) {
+    self.levels.insert(level.name(), level.clone());
+    self.current = self.from_env();
+  }
+
+  pub fn is_in_level(&self, msg_level: Level) -> bool {
+    msg_level.id() >= self.current.id()
   }
 }
 
 pub struct Message {
-  text: String,
-  level: Level,
-  timestamp: chrono::DateTime<chrono::Local>
+  pub text: String,
+  pub level: Level,
+  pub timestamp: chrono::DateTime<chrono::Local>
 }
 
 pub struct Logger {
-  logs: Vec<Message>,
-  level: Level
+  pub logs: Vec<Message>,
+  pub levels: Levels,
 }
 
 impl Logger {
   pub fn new() -> Logger {
     let logs: Vec<Message> = Vec::new();
-    let level = Level::from_env();
+    let levels = Levels::new();
 
-    println!("Log Level: {:?}", level);
-
-    Logger { logs, level }
+    Logger { logs, levels }
   }
 
   pub fn print_logs(&self) {
@@ -86,7 +96,7 @@ impl Logger {
       timestamp: chrono::Local::now()
     };
 
-    if Level::is_in_level(level, self.level.clone()) {
+    if self.levels.is_in_level(level) {
       self.console(&log);
       self.logs.push(log);
     }
@@ -94,30 +104,30 @@ impl Logger {
 
   pub fn console(&self, log: &Message) {
     let timestamp = log.timestamp.format("%Y-%m-%d %H:%M:%S");
-    println!("[{:?}] ({}) {}", log.level, timestamp, log.text)
+    println!("[{}] ({}) {}", log.level.name(), timestamp, log.text)
   }
 
   pub fn debug(&mut self, msg: &str) {
-    self.log(msg, Level::Debug)
+    self.log(msg, DEBUG)
   }
 
   pub fn verbose(&mut self, msg: &str) {
-    self.log(msg, Level::Verbose)
+    self.log(msg, VERBOSE)
   }
 
   pub fn info(&mut self, msg: &str) {
-    self.log(msg, Level::Info)
+    self.log(msg, INFO)
   }
 
   pub fn warn(&mut self, msg: &str) {
-    self.log(msg, Level::Warn)
+    self.log(msg, WARN)
   }
 
   pub fn error(&mut self, msg: &str) {
-    self.log(msg, Level::Error)
+    self.log(msg, ERROR)
   }
 
   pub fn fatal(&mut self, msg: &str) {
-    self.log(msg, Level::Fatal)
+    self.log(msg, FATAL)
   }
 }
